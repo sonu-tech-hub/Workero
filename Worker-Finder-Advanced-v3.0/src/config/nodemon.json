@@ -1,0 +1,8 @@
+{
+  "watch": ["src/", "server.js"],
+  "ext": "js,json",
+  "ignore": [
+    "*.test.js",
+    "src/config/initDatabase.js"
+  ]
+}
