@@ -591,13 +591,24 @@ async function initDatabase() {
     const [existingAdmin] = await connection.execute(
       'SELECT id FROM users WHERE email = ?', [adminEmail]
     );
+
+    // CRITICAL SECURITY FIX: Do not use a hardcoded password.
+    // Use an environment variable for the initial admin password.
+    const adminPassword = process.env.DEFAULT_ADMIN_PASSWORD;
+    if (!adminPassword || adminPassword.length < 12) {
+      console.error('❌ ERROR: DEFAULT_ADMIN_PASSWORD is not set or is too weak. Please set a strong password in your .env file.');
+      throw new Error('Admin password not configured securely.');
+    }
+
     if (existingAdmin.length === 0) {
       const hashedPassword = await bcrypt.hash('Admin@123456', 12);
+      // const hashedPassword = await bcrypt.hash(adminPassword, 12);
       await connection.execute(`
         INSERT INTO users (email, password, user_type, is_verified, is_active, is_email_verified)
         VALUES (?, ?, 'admin', TRUE, TRUE, TRUE)
       `, [adminEmail, hashedPassword]);
       console.log('  ✅ Default admin user created (admin@workerfinder.com / Admin@123456)');
+      console.log(`  ✅ Default admin user created (admin@workerfinder.com). Password set from environment variable.`);
     }
 
     console.log('\n✅ Database initialization complete!\n');

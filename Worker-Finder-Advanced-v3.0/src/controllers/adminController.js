@@ -43,34 +43,41 @@ const getDashboardStats = asyncHandler(async (req, res) => {
 
   let revenueStats;
   try {
+  [[revenueStats]] = await promisePool.execute(`
+    SELECT
+      COALESCE(SUM(CASE WHEN status IN ('captured','completed') THEN amount ELSE 0 END),0) as total_payment_volume,
+      COALESCE(SUM(CASE WHEN status IN ('captured','completed') THEN platform_fee ELSE 0 END),0) as total_revenue,
+      COALESCE(SUM(CASE WHEN status IN ('captured','completed') THEN gst_amount ELSE 0 END),0) as total_gst,
+      COALESCE(SUM(CASE WHEN status IN ('captured','completed') THEN worker_payout ELSE 0 END),0) as total_worker_payouts,
+      COUNT(CASE WHEN status IN ('captured','completed') THEN 1 END) as successful_transactions,
+      COUNT(CASE WHEN status = 'failed' THEN 1 END) as failed_transactions,
+      COUNT(CASE WHEN status = 'refunded' THEN 1 END) as refunded_transactions
+    FROM payments
+  `);
+} catch (err) {
+  if (err && err.code === 'ER_BAD_FIELD_ERROR' && err.message.includes('platform_fee')) {
+
+    logger.warn(
+      'Admin dashboard revenue query failed, likely due to old schema. Falling back to safe query.',
+      { error: err.message }
+    );
+
     [[revenueStats]] = await promisePool.execute(`
       SELECT
-        COALESCE(SUM(CASE WHEN status = 'captured' THEN platform_fee ELSE 0 END), 0) as total_revenue,
-        COALESCE(SUM(CASE WHEN status = 'captured' AND MONTH(created_at) = MONTH(CURDATE())
-                     AND YEAR(created_at) = YEAR(CURDATE()) THEN platform_fee ELSE 0 END), 0) as monthly_revenue,
-        COALESCE(SUM(CASE WHEN status = 'captured' AND DATE(created_at) = CURDATE()
-                     THEN platform_fee ELSE 0 END), 0) as today_revenue,
-        COUNT(CASE WHEN status = 'captured' THEN 1 END) as successful_payments,
-        COUNT(CASE WHEN status = 'failed' THEN 1 END) as failed_payments
+        COALESCE(SUM(CASE WHEN status IN ('captured','completed') THEN amount ELSE 0 END),0) as total_payment_volume,
+        0 as total_revenue,
+        0 as total_gst,
+        0 as total_worker_payouts,
+        COUNT(CASE WHEN status IN ('captured','completed') THEN 1 END) as successful_transactions,
+        COUNT(CASE WHEN status = 'failed' THEN 1 END) as failed_transactions,
+        COUNT(CASE WHEN status = 'refunded' THEN 1 END) as refunded_transactions
       FROM payments
     `);
-  } catch (err) {
-    if (err && err.code === 'ER_BAD_FIELD_ERROR' && err.message.includes('platform_fee')) {
-      logger.warn('Admin dashboard revenue query failed, likely due to old schema. Falling back to safe query.', { error: err.message });
-      // Fallback for older schemas that don't have platform_fee column
-      [[revenueStats]] = await promisePool.execute(`
-        SELECT
-          0 as total_revenue,
-          0 as monthly_revenue,
-          0 as today_revenue,
-          COUNT(CASE WHEN status = 'captured' THEN 1 END) as successful_payments,
-          COUNT(CASE WHEN status = 'failed' THEN 1 END) as failed_payments
-        FROM payments
-      `);
-    } else {
-      throw err;
-    }
+
+  } else {
+    throw err;
   }
+}
 
   const [[disputeStats]] = await promisePool.execute(`
     SELECT
@@ -246,21 +253,26 @@ const getAnalytics = asyncHandler(async (req, res) => {
     } else { throw err; }
   }
 
-  let dailyRevenue = [];
-  try {
-    [dailyRevenue] = await promisePool.execute(`
-      SELECT DATE(created_at) as date, SUM(platform_fee) as revenue, COUNT(*) as transactions
-      FROM payments
-      WHERE status = 'captured' AND created_at >= DATE_SUB(CURDATE(), INTERVAL ? DAY)
-      GROUP BY DATE(created_at)
-      ORDER BY date ASC
-    `, [days]);
-  } catch (err) {
-    if (err && err.code === 'ER_BAD_FIELD_ERROR') {
-      logger.warn('Analytics dailyRevenue query failed, likely due to old schema.', { error: err.message });
-    } else { throw err; }
+ let dailyRevenue = [];
+try {
+  [dailyRevenue] = await promisePool.execute(`
+    SELECT 
+      DATE(created_at) as date,
+      COALESCE(SUM(CASE WHEN status IN ('captured','completed') THEN platform_fee ELSE 0 END),0) as revenue,
+      COUNT(CASE WHEN status IN ('captured','completed') THEN 1 END) as transactions
+    FROM payments
+    WHERE status IN ('captured','completed')
+      AND created_at >= DATE_SUB(CURDATE(), INTERVAL ? DAY)
+    GROUP BY DATE(created_at)
+    ORDER BY date ASC
+  `, [days]);
+} catch (err) {
+  if (err && err.code === 'ER_BAD_FIELD_ERROR') {
+    logger.warn('Analytics dailyRevenue query failed, likely due to old schema.', { error: err.message });
+  } else { 
+    throw err; 
   }
-
+}
   const [dailySignups] = await promisePool.execute(`
     SELECT DATE(created_at) as date,
     SUM(CASE WHEN user_type = 'worker' THEN 1 ELSE 0 END) as workers,
@@ -399,7 +411,7 @@ const resolveDispute = asyncHandler(async (req, res) => {
 
   res.json({ success: true, message: `Dispute ${status} successfully` });
 });
-
+  
 // ─── Send Mass Notification ───────────────────────────────────
 const sendMassNotification = asyncHandler(async (req, res) => {
   const { title, body, user_type, priority = 'medium' } = req.body;
@@ -461,36 +473,50 @@ const sendMassNotification = asyncHandler(async (req, res) => {
 // ─── Get Platform Revenue ─────────────────────────────────────
 const getPlatformRevenue = asyncHandler(async (req, res) => {
   let totals;
+
   try {
     [[totals]] = await promisePool.execute(`
       SELECT
-        COALESCE(SUM(CASE WHEN status = 'captured' THEN amount ELSE 0 END), 0) as total_payment_volume,
-        COALESCE(SUM(CASE WHEN status = 'captured' THEN platform_fee ELSE 0 END), 0) as total_revenue,
-        COALESCE(SUM(CASE WHEN status = 'captured' THEN gst_amount ELSE 0 END), 0) as total_gst,
-        COALESCE(SUM(CASE WHEN status = 'captured' THEN worker_payout ELSE 0 END), 0) as total_worker_payouts,
-        COUNT(CASE WHEN status = 'captured' THEN 1 END) as successful_transactions,
+        COALESCE(SUM(CASE WHEN status IN ('captured','completed') THEN amount ELSE 0 END),0) as total_payment_volume,
+        COALESCE(SUM(CASE WHEN status IN ('captured','completed') THEN platform_fee ELSE 0 END),0) as total_revenue,
+        COALESCE(SUM(CASE WHEN status IN ('captured','completed') THEN gst_amount ELSE 0 END),0) as total_gst,
+        COALESCE(SUM(CASE WHEN status IN ('captured','completed') THEN worker_payout ELSE 0 END),0) as total_worker_payouts,
+        COUNT(CASE WHEN status IN ('captured','completed') THEN 1 END) as successful_transactions,
         COUNT(CASE WHEN status = 'failed' THEN 1 END) as failed_transactions,
         COUNT(CASE WHEN status = 'refunded' THEN 1 END) as refunded_transactions
       FROM payments
     `);
+
   } catch (err) {
+
     if (err && err.code === 'ER_BAD_FIELD_ERROR') {
-      logger.warn('Platform revenue query failed, likely due to old schema. Falling back to zeros for missing fields.', { error: err.message });
+
+      logger.warn(
+        'Platform revenue query failed, likely due to old schema.',
+        { error: err.message }
+      );
+
       [[totals]] = await promisePool.execute(`
         SELECT
-          COALESCE(SUM(CASE WHEN status = 'captured' THEN amount ELSE 0 END), 0) as total_payment_volume,
-          0 as total_revenue, 0 as total_gst, 0 as total_worker_payouts,
-          COUNT(CASE WHEN status = 'captured' THEN 1 END) as successful_transactions,
+          COALESCE(SUM(CASE WHEN status IN ('captured','completed') THEN amount ELSE 0 END),0) as total_payment_volume,
+          0 as total_revenue,
+          0 as total_gst,
+          0 as total_worker_payouts,
+          COUNT(CASE WHEN status IN ('captured','completed') THEN 1 END) as successful_transactions,
           COUNT(CASE WHEN status = 'failed' THEN 1 END) as failed_transactions,
           COUNT(CASE WHEN status = 'refunded' THEN 1 END) as refunded_transactions
         FROM payments
       `);
+
     } else {
       throw err;
     }
   }
 
-  res.json({ success: true, data: totals });
+  res.json({
+    success: true,
+    data: totals
+  });
 });
 
 // ─── Cache Management ─────────────────────────────────────────

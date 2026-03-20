@@ -5,7 +5,7 @@ import { useNotification } from '../../context/NotificationContext';
 
 const Navbar = () => {
   const { user, logoutUser, isWorker, isSeeker, isAdmin } = useAuth();
-  const { unreadMessages } = useNotification();
+  const { notifications, unreadMessages } = useNotification();
   const navigate = useNavigate();
   const location = useLocation();
   const dashboardPath = isAdmin ? '/admin' : '/dashboard';
@@ -75,6 +75,8 @@ const Navbar = () => {
             {isSeeker && navLink('/workers/search', 'Find Workers')}
             {isWorker && navLink('/jobs/browse', 'Browse Jobs')}
             {navLink('/jobs/my-jobs', 'My Jobs')}
+            {navLink('/announcements', 'Announcements')}
+            {navLink('/notifications', 'Notifications', notifications.filter(n => !n.is_read).length)}
             {navLink('/messages', 'Messages', unreadMessages)}
             {navLink('/disputes', 'Disputes')}
             {navLink('/referrals', 'Referrals')}

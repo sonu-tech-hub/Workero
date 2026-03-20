@@ -105,18 +105,29 @@ class NotificationService {
   async saveNotification(pool, userId, type, data = {}) {
     try {
       const notification = aiService.generateNotification(type, data);
-      const sql = `
-        INSERT INTO notifications (user_id, type, title, body, data, priority, created_at)
-        VALUES (?, ?, ?, ?, ?, ?, NOW())
-      `;
-      await pool.execute(sql, [
-        userId,
-        type,
-        notification.title,
-        notification.body,
-        JSON.stringify(data),
-        notification.priority || 'medium'
-      ]);
+      try {
+        // Try modern schema first
+        await pool.execute(
+          `INSERT INTO notifications (user_id, type, title, body, data, reference_id, created_at)
+           VALUES (?, ?, ?, ?, ?, ?, NOW())`,
+          [
+            userId,
+            type,
+            notification.title,
+            notification.body,
+            JSON.stringify(data),
+            data?.reference_id || null,
+          ]
+        );
+      } catch (err) {
+        if (err && err.code === 'ER_BAD_FIELD_ERROR') {
+          // Fallback to legacy schema
+          await pool.execute(
+            `INSERT INTO notifications (user_id, type, title, message, reference_id, created_at) VALUES (?, ?, ?, ?, ?, NOW())`,
+            [userId, type, notification.title, notification.body, data?.reference_id || null]
+          );
+        } else { throw err; }
+      }
       return { success: true, notification };
     } catch (err) {
       logger.error('Failed to save notification', { userId, type, error: err.message });

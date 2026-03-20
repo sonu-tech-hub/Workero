@@ -26,6 +26,7 @@ const BrowseJobsPage     = lazy(() => import('./pages/jobs/BrowseJobsPage'));
 const JobDetailPage      = lazy(() => import('./pages/jobs/JobDetailPage'));
 const MyJobsPage         = lazy(() => import('./pages/jobs/MyJobsPage'));
 const MessagesPage       = lazy(() => import('./pages/messages/MessagesPage'));
+const NotificationsPage  = lazy(() => import('./pages/NotificationsPage'));
 const CreateReviewPage   = lazy(() => import('./pages/reviews/CreateReviewPage'));
 const DisputesPage       = lazy(() => import('./pages/disputes/DisputesPage'));
 const CreateDisputePage  = lazy(() => import('./pages/disputes/CreateDisputePage'));
@@ -88,6 +89,7 @@ function App() {
                   <Route path="/profile"          element={<ProfileView />} />
                   <Route path="/profile/edit"     element={<ProfileEdit />} />
                   <Route path="/jobs/my-jobs"     element={<MyJobsPage />} />
+                  <Route path="/notifications"    element={<NotificationsPage />} />
                   <Route path="/messages"         element={<MessagesPage />} />
                   <Route path="/reviews/create"   element={<CreateReviewPage />} />
                   <Route path="/disputes"         element={<DisputesPage />} />

@@ -10,6 +10,7 @@ import React, {
 } from 'react';
 import { io } from 'socket.io-client';
 import { getUnreadCount } from '../api/messageAPI';
+import { getNotifications } from '../api/notificationAPI';
 import { useAuth } from './AuthContext';
 
 const NotificationContext = createContext(null);
@@ -20,6 +21,7 @@ const POLL_INTERVAL = 30_000; // 30 s
 export const NotificationProvider = ({ children }) => {
   const { user, isAuth }       = useAuth();
   const [unreadMessages, setUnreadMessages] = useState(0);
+  const [notifications, setNotifications] = useState([]);
   const [toasts, setToasts]    = useState([]);
   const socketRef              = useRef(null);
   const pollRef                = useRef(null);
@@ -54,6 +56,19 @@ export const NotificationProvider = ({ children }) => {
     return () => clearInterval(pollRef.current);
   }, [isAuth, pollUnread]);
 
+  const fetchNotifications = useCallback(async () => {
+    if (!isAuth) return;
+    try {
+      const { data } = await getNotifications();
+      setNotifications(data.data?.notifications || []);
+    } catch (e) {
+      // Log errors for easier debugging, but don't show a toast to the user
+      console.error('[NotificationContext] Failed to fetch notifications:', e);
+    }
+  }, [isAuth]);
+
+  useEffect(() => { fetchNotifications(); }, [fetchNotifications]);
+
   // ── Socket.io connection ──────────────────────────────────
   useEffect(() => {
     if (!isAuth || !user) return;
@@ -66,11 +81,18 @@ export const NotificationProvider = ({ children }) => {
     });
     socketRef.current = socket;
 
-    socket.emit('join_room', `user_${user.id}`);
+    socket.emit('join:room', { roomId: `user:${user.id}` });
 
     socket.on('new_message', (msg) => {
       setUnreadMessages((c) => c + 1);
       addToast(`💬 New message from ${msg.sender_name || 'someone'}`, 'info');
+    });
+
+    // notifaction fix---
+
+    socket.on('notification:new', (notification) => {
+      addToast(notification.title || 'New notification', 'info');
+      fetchNotifications();
     });
 
     socket.on('job_update', (job) => {
@@ -98,6 +120,7 @@ export const NotificationProvider = ({ children }) => {
   return (
     <NotificationContext.Provider value={{
       unreadMessages, setUnreadMessages,
+      notifications, setNotifications,
       toasts, addToast, removeToast,
       socket: socketRef.current
     }}>

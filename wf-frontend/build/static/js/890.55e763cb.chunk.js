@@ -1,0 +1,2 @@
+"use strict";(self.webpackChunkworker_finder_frontend=self.webpackChunkworker_finder_frontend||[]).push([[890],{890(e,r,s){s.r(r),s.d(r,{default:()=>c});s(5043);var n=s(3216),o=s(8729),t=s(2600),i=s(5038),a=s(579);const c=()=>{const{user:e,isWorker:r,isSeeker:s,isAdmin:c}=(0,o.A)();return e?c?(0,a.jsx)(n.C5,{to:"/admin",replace:!0}):r?(0,a.jsx)(t.A,{}):s?(0,a.jsx)(i.A,{}):(0,a.jsx)(n.C5,{to:"/login",replace:!0}):(0,a.jsx)(n.C5,{to:"/login",replace:!0})}}}]);
+//# sourceMappingURL=890.55e763cb.chunk.js.map
