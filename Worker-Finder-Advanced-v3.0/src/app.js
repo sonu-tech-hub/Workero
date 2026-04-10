@@ -30,6 +30,7 @@ const jobRoutes = require('./routes/jobRoutes');
 const adminRoutes = require('./routes/adminRoutes');
 const paymentRoutes = require('./routes/paymentRoutes');
 const aiRoutes = require('./routes/aiRoutes');
+const notificationRoutes = require('./routes/notificationRoutes');
 
 const cacheService = require('./services/cacheService');
 
@@ -115,6 +116,7 @@ app.use('/api/jobs', jobRoutes);
 app.use('/api/admin', adminRoutes);
 app.use('/api/payments', paymentRoutes);
 app.use('/api/ai', aiRoutes);
+app.use('/api/notifications', notificationRoutes);
 
 // ─── Root Endpoint ────────────────────────────────────────────
 app.get('/', (req, res) => {
@@ -142,6 +144,7 @@ app.get('/', (req, res) => {
       ai: '/api/ai',
       reviews: '/api/reviews',
       messages: '/api/messages',
+      notifications: '/api/notifications',
       disputes: '/api/disputes',
       referrals: '/api/referrals',
       categories: '/api/categories',
@@ -151,7 +154,15 @@ app.get('/', (req, res) => {
 });
 
 // ─── Not Found & Error Handlers ───────────────────────────────
+// Prevent noisy browser favicon requests from reaching the global 404 handler
+app.get('/favicon.ico', (req, res) => res.status(204).end());
+
 app.use(notFoundHandler);
 app.use(errorHandler);
 
 module.exports = app;
+
+
+
+
+

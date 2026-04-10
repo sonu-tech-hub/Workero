@@ -4,33 +4,56 @@ const { paginate } = require('../utils/helpers');
 const asyncHandler = require('../utils/asyncHandler');
 const ApiError = require('../utils/ApiError');
 
+let cachedMessageTextColumn = null;
+
+const getMessageTextColumn = async () => {
+  if (cachedMessageTextColumn) return cachedMessageTextColumn;
+
+  const [messageCols] = await promisePool.query("SHOW COLUMNS FROM messages LIKE 'message'");
+  if (messageCols.length > 0) {
+    cachedMessageTextColumn = 'message';
+    return cachedMessageTextColumn;
+  }
+
+  const [bodyCols] = await promisePool.query("SHOW COLUMNS FROM messages LIKE 'message_text'");
+  if (bodyCols.length > 0) {
+    cachedMessageTextColumn = 'message_text';
+    return cachedMessageTextColumn;
+  }
+
+  throw new ApiError(500, "Messages table is missing both 'message' and 'message_text' columns.");
+};
+
 // Send message
 const sendMessage = asyncHandler(async (req, res) => {
     const senderId = req.user.id;
-    const { receiver_id, message, job_id } = req.body;
-    
+    const { receiver_id, message, message_text, job_id } = req.body;
+    const normalizedMessage = (message ?? message_text ?? '').trim();
+
     // Check if receiver exists
     const [receivers] = await promisePool.query(
       'SELECT id FROM users WHERE id = ? AND is_active = TRUE',
       [receiver_id]
     );
-    
+
     if (receivers.length === 0) {
       throw new ApiError(404, 'Receiver not found');
     }
-    
+
     // Upload media if provided
     let mediaUrl = null;
     if (req.file) {
       const result = await uploadToCloudinary(req.file.buffer, 'messages');
       mediaUrl = result.secure_url;
     }
-    
+
+    const messageTextColumn = await getMessageTextColumn();
+
     // Insert message
     const [result] = await promisePool.query(
-      `INSERT INTO messages (sender_id, receiver_id, job_id, message, media_url)
+      `INSERT INTO messages (sender_id, receiver_id, job_id, ${messageTextColumn}, media_url)
        VALUES (?, ?, ?, ?, ?)`,
-      [senderId, receiver_id, job_id || null, message, mediaUrl]
+      [senderId, receiver_id, job_id || null, normalizedMessage, mediaUrl]
     );
 
     // Create notification for receiver
@@ -38,7 +61,7 @@ const sendMessage = asyncHandler(async (req, res) => {
       await promisePool.query(
         `INSERT INTO notifications (user_id, type, title, body, data)
          VALUES (?, 'new_message', ?, ?, ?)`,
-        [receiver_id, 'New Message', (message || '').substring(0, 100), JSON.stringify({ messageId: result.insertId, senderId })]
+        [receiver_id, 'New Message', (normalizedMessage || '').substring(0, 100), JSON.stringify({ messageId: result.insertId, senderId })]
       );
     } catch (err) {
       if (err && err.code === 'ER_BAD_FIELD_ERROR' && (err.message.includes("'body'") || err.message.includes("'data'"))) {
@@ -46,7 +69,7 @@ const sendMessage = asyncHandler(async (req, res) => {
         await promisePool.query(
           `INSERT INTO notifications (user_id, type, title, message, reference_id)
            VALUES (?, 'new_message', ?, ?, ?)`,
-          [receiver_id, 'New Message', (message || '').substring(0, 100), result.insertId]
+          [receiver_id, 'New Message', (normalizedMessage || '').substring(0, 100), result.insertId]
         );
       } else { throw err; }
     }
@@ -71,14 +94,14 @@ const getConversation = asyncHandler(async (req, res) => {
     }
     const parsedOtherUserId = parseInt(otherUserId, 10);
     const { page = 1, limit = 50 } = req.query;
-    
+
     const { limit: limitNum, offset } = paginate(page, limit);
-    
+
     const [messages] = await promisePool.query(
-      `SELECT 
+      `SELECT
         m.*,
         s.email as sender_email,
-        CASE 
+        CASE
           WHEN wp.user_id IS NOT NULL THEN wp.full_name
           WHEN sp.user_id IS NOT NULL THEN sp.full_name
           ELSE 'User'
@@ -87,31 +110,31 @@ const getConversation = asyncHandler(async (req, res) => {
       JOIN users s ON m.sender_id = s.id
       LEFT JOIN worker_profiles wp ON wp.user_id = s.id
       LEFT JOIN seeker_profiles sp ON sp.user_id = s.id
-      WHERE 
+      WHERE
         (m.sender_id = ? AND m.receiver_id = ?) OR
         (m.sender_id = ? AND m.receiver_id = ?)
       ORDER BY m.created_at DESC
       LIMIT ? OFFSET ?`,
       [userId, parsedOtherUserId, parsedOtherUserId, userId, limitNum, offset]
     );
-    
+
     // Mark messages as read
     await promisePool.query(
       'UPDATE messages SET is_read = TRUE WHERE receiver_id = ? AND sender_id = ?',
       [userId, parsedOtherUserId]
     );
-    
+
     // Get total count
     const [countResult] = await promisePool.query(
-      `SELECT COUNT(*) as total FROM messages 
+      `SELECT COUNT(*) as total FROM messages
        WHERE (sender_id = ? AND receiver_id = ?) OR (sender_id = ? AND receiver_id = ?)`,
       [userId, parsedOtherUserId, parsedOtherUserId, userId]
     );
-    
+
     res.json({
       success: true,
       data: {
-  messages: messages.reverse(), // Reverse to show oldest first
+        messages: messages.reverse().map((msg) => ({ ...msg, message: msg.message ?? msg.message_text ?? msg.body ?? '', message_text: msg.message ?? msg.message_text ?? msg.body ?? '' })), // Normalize for older/newer schemas
         pagination: {
           page: parseInt(page),
           limit: limitNum,
@@ -125,12 +148,14 @@ const getConversation = asyncHandler(async (req, res) => {
 // Get all conversations (chat list)
 const getConversationList = asyncHandler(async (req, res) => {
     const userId = req.user.id;
+    const messageTextColumn = await getMessageTextColumn();
+
     // This query has been updated to be compatible with older MySQL versions (e.g., 5.7)
     // by replacing the window function with a subquery/join approach.
     const [conversations] = await promisePool.query(
       `SELECT
         m.id,
-        m.message as last_message,
+        m.${messageTextColumn} as last_message,
         m.created_at as last_message_time,
         CASE
             WHEN m.sender_id = ? THEN m.receiver_id
@@ -172,19 +197,19 @@ const getConversationList = asyncHandler(async (req, res) => {
 const getUnreadCount = async (req, res) => {
   try {
     const userId = req.user.id;
-    
+
     const [result] = await promisePool.query(
       'SELECT COUNT(*) as unread_count FROM messages WHERE receiver_id = ? AND is_read = FALSE',
       [userId]
     );
-    
+
     res.json({
       success: true,
       data: {
         unread_count: result[0].unread_count
       }
     });
-    
+
   } catch (error) {
     console.error('Get unread count error:', error);
     res.status(500).json({
@@ -199,17 +224,17 @@ const markAsRead = async (req, res) => {
   try {
     const userId = req.user.id;
     const { otherUserId } = req.params;
-    
+
     await promisePool.query(
       'UPDATE messages SET is_read = TRUE WHERE receiver_id = ? AND sender_id = ?',
       [userId, otherUserId]
     );
-    
+
     res.json({
       success: true,
       message: 'Messages marked as read'
     });
-    
+
   } catch (error) {
     console.error('Mark as read error:', error);
     res.status(500).json({
@@ -226,3 +251,5 @@ module.exports = {
   getUnreadCount,
   markAsRead
 };
+
+

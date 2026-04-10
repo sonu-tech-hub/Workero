@@ -20,8 +20,6 @@ const pool = mysql.createPool({
   enableKeepAlive: true,
   keepAliveInitialDelay: 0,
   connectTimeout: 60000,
-  acquireTimeout: 60000,
-  timeout: 60000,
   charset: 'utf8mb4'
 });
 
@@ -73,3 +71,4 @@ const executeQuery = async (sql, params = []) => {
 };
 
 module.exports = { promisePool, testConnection, closeConnection, executeQuery };
+

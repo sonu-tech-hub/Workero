@@ -18,7 +18,7 @@ const getNotificationsForUser = asyncHandler(async (req, res) => {
   const { page = 1, limit = 20, type } = req.query;
   const { offset, limit: l } = paginate(page, limit);
 
-  console.log(`[notifications] Fetching for user ${userId} | Page: ${page}, Limit: ${l}, Type: ${type || 'all'}`);
+
 
   const whereClauses = ['user_id = ?'];
   const params = [userId];

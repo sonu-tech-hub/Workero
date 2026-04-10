@@ -5,10 +5,10 @@ const {
   markNotificationAsRead,
   markAllNotificationsAsRead,
 } = require('../controllers/notificationController');
-const { protect } = require('../middleware/authMiddleware');
+const { verifyToken } = require('../middleware/auth');
 
 // All routes in this file are protected
-router.use(protect);
+router.use(verifyToken);
 
 // GET /api/notifications
 router.route('/').get(getNotificationsForUser);

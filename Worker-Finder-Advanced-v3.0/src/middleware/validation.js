@@ -113,8 +113,27 @@ const validateReview = [
 // ─── Message Validators ───────────────────────────────────────
 const validateMessage = [
   body('receiver_id').notEmpty().isInt({ min: 1 }).withMessage('Valid receiver_id required'),
-  body('message').notEmpty().trim().isLength({ min: 1, max: 2000 })
+  body('message')
+    .optional({ checkFalsy: true })
+    .isLength({ min: 1, max: 2000 })
     .withMessage('Message must be 1-2000 characters'),
+  body('message_text')
+    .optional({ checkFalsy: true })
+    .isLength({ min: 1, max: 2000 })
+    .withMessage('Message text must be 1-2000 characters'),
+  (req, res, next) => {
+    const text = (req.body.message || req.body.message_text || '').trim();
+    const hasMedia = !!req.file;
+
+    if (!text && !hasMedia) {
+      return res.status(400).json({
+        success: false,
+        message: 'Message or media attachment is required',
+      });
+    }
+
+    next();
+  },
   handleValidationErrors
 ];
 
@@ -186,3 +205,4 @@ module.exports = {
   validateVerifyPayment,
   validateIdParam,
 };
+
