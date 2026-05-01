@@ -217,17 +217,28 @@ const login = asyncHandler(async (req, res) => {
   const identifierNormalized = String(identifier).trim();
   const mobileDigits = identifierNormalized.replace(/\D/g, '');
   const mobileLast10 = mobileDigits.slice(-10);
+  const loginConditions = ['LOWER(email) = LOWER(?)', 'mobile = ?'];
+  const loginParams = [identifierNormalized, identifierNormalized];
+
+  if (mobileDigits.length > 0) {
+    loginConditions.push(
+      `REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(COALESCE(mobile, ''), '+', ''), ' ', ''), '-', ''), '(', ''), ')', '') = ?`
+    );
+    loginParams.push(mobileDigits);
+  }
+
+  if (mobileLast10.length === 10) {
+    loginConditions.push(
+      `RIGHT(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(COALESCE(mobile, ''), '+', ''), ' ', ''), '-', ''), '(', ''), ')', ''), 10) = ?`
+    );
+    loginParams.push(mobileLast10);
+  }
 
   const [users] = await promisePool.execute(
     `SELECT * FROM users
-     WHERE is_active = TRUE AND (
-       LOWER(email) = LOWER(?)
-       OR mobile = ?
-       OR REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(COALESCE(mobile, ''), '+', ''), ' ', ''), '-', ''), '(', ''), ')', '') = ?
-       OR RIGHT(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(COALESCE(mobile, ''), '+', ''), ' ', ''), '-', ''), '(', ''), ')', ''), 10) = ?
-     )
+     WHERE is_active = TRUE AND (${loginConditions.join(' OR ')})
      LIMIT 1`,
-    [identifierNormalized, identifierNormalized, mobileDigits, mobileLast10]
+    loginParams
   );
   if (users.length === 0) throw new ApiError(401, 'Invalid credentials');
 

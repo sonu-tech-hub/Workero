@@ -11,6 +11,7 @@ export const resendOTP = (data) => api.post('/auth/resend-otp', data);
 
 // Login
 export const login = (data) => api.post('/auth/login', data);
+console.log("dat is thia",login)
 
 // Refresh access token
 export const refreshToken = (refresh_token) =>
